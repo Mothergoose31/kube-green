@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/kube-green/kube-green/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -210,6 +212,13 @@ func main() {
 	}
 	if err = webhookv1alpha1.SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SleepInfo")
+		os.Exit(1)
+	}
+	if err := (&controller.SleepinfoExecutionReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SleepinfoExecution")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
