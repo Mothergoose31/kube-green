@@ -57,6 +57,15 @@ type SleepinfoExecutionStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// SleepInfoExecutionSpec defines the desired state of SleepInfoExecution.
+type SleepInfoExecutionSpec struct {
+	// SleepInfoRef is the name of the SleepInfo in the same namespace to run against.
+	// +kubebuilder:validation:MinLength=1
+	SleepInfoRef string `json:"sleepInfoRef"`
+	// Operation is the one-shot operation to perform.
+	Operation SleepInfoExecutionOperation `json:"operation"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=sleepinfoexecutions

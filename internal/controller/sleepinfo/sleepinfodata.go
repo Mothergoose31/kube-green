@@ -84,6 +84,44 @@ const (
 	originalCronjobStatusKey = "cronjobs-info"
 )
 
+// sets current operation type and schedules it from sleepInfoExecution
+// it runs sleep or wake regardsless of the next cron tick.
+// LastSchedule and OriginalGenericResourceInfo from data are presebv
+func SleepInfoExecutuionOveride(data SleepInfoData, op string, sleepInfo *kubegreenv1alpha1.SleepInfo) (SleepInfoData, error) {
+	sleepSchedule, err := sleepInfo.GetSleepSchedule()
+	if err != nil {
+		return SleepInfoData{}, err
+	}
+
+	wakeSchedule, err := sleepInfo.GetWakeUpSchedule()
+	if err != nil {
+		return SleepInfoData{}, err
+	}
+
+	out := data
+	switch op {
+	case sleepOperation:
+		out.CurrentOperationType = sleepOperation
+		out.CurrentOperationSchedule = sleepSchedule
+		out.NextOperationSchedule = wakeSchedule
+		if wakeSchedule == "" {
+			out.NextOperationSchedule = sleepSchedule
+		}
+
+	case wakeUpOperation:
+		if wakeSchedule == "" {
+			return SleepInfoData{}, fmt.Errorf("SleepInfo %q has no wakeUpAt; WAKE_UP is not supported", sleepInfo.Name)
+		}
+		out.CurrentOperationType = sleepOperation
+		out.CurrentOperationSchedule = sleepSchedule
+		out.NextOperationSchedule = wakeSchedule
+
+	default:
+		return SleepInfoData{}, fmt.Errorf("unknown execution operation %q", op)
+	}
+	return out, nil
+}
+
 func convertOldSecretDataToNewFormat(originalGenericResourceInfo map[string]jsonpatch.RestorePatches, secretData map[string][]byte) (map[string]jsonpatch.RestorePatches, error) {
 	if originalGenericResourceInfo == nil {
 		originalGenericResourceInfo = make(map[string]jsonpatch.RestorePatches)
