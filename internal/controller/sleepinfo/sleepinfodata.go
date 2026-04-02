@@ -12,6 +12,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+// TODO write state store type that keeps track of state
 type SleepInfoData struct {
 	LastSchedule                time.Time
 	CurrentOperationType        string
@@ -115,6 +116,41 @@ func SleepInfoExecutuionOveride(data SleepInfoData, op string, sleepInfo *kubegr
 		out.CurrentOperationType = sleepOperation
 		out.CurrentOperationSchedule = sleepSchedule
 		out.NextOperationSchedule = wakeSchedule
+
+	default:
+		return SleepInfoData{}, fmt.Errorf("unknown execution operation %q", op)
+	}
+	return out, nil
+}
+
+func applyExecutionOverride(data SleepInfoData, op kubegreenv1alpha1.SleepInfoExecutionOperation, sleepInfo *kubegreenv1alpha1.SleepInfo) (SleepInfoData, error) {
+	sleepSchedule, err := sleepInfo.GetSleepSchedule()
+	if err != nil {
+		return SleepInfoData{}, err
+	}
+
+	wakeSchedule, err := sleepInfo.GetWakeUpSchedule()
+	if err != nil {
+		return SleepInfoData{}, err
+	}
+
+	out := data
+	switch op {
+	case kubegreenv1alpha1.ExecutionOpSleep:
+		out.CurrentOperationType = sleepOperation
+		out.CurrentOperationSchedule = sleepSchedule
+		out.NextOperationSchedule = wakeSchedule
+		if wakeSchedule == "" {
+			out.NextOperationSchedule = sleepSchedule
+		}
+
+	case kubegreenv1alpha1.ExecutionOpWake:
+		if wakeSchedule == "" {
+			return SleepInfoData{}, fmt.Errorf("SleepInfo %q has no wakeUpAt; WAKE is not supported", sleepInfo.Name)
+		}
+		out.CurrentOperationType = wakeUpOperation
+		out.CurrentOperationSchedule = wakeSchedule
+		out.NextOperationSchedule = sleepSchedule
 
 	default:
 		return SleepInfoData{}, fmt.Errorf("unknown execution operation %q", op)

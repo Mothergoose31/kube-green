@@ -9,14 +9,15 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	kubegreencomv1alpha1 "github.com/kube-green/kube-green/api/v1alpha1"
+	"github.com/kube-green/kube-green/internal/controller/sleepinfo/resource"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	kubegreencomv1alpha1 "github.com/kube-green/kube-green/api/v1alpha1"
 )
 
 // SleepinfoExecutionReconciler reconciles a SleepinfoExecution object
@@ -24,9 +25,8 @@ type SleepinfoExecutionReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Clock
-	Log                     *logr.Logger
-	ManagerName             string
-	MaxConcurrentReconciles int
+	Log         logr.Logger
+	ManagerName string
 }
 
 // +kubebuilder:rbac:groups=kube-green.com,resources=sleepinfoexecutions,verbs=get;list;watch;create;update;patch;delete
@@ -48,59 +48,87 @@ func (r *SleepinfoExecutionReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.Get(ctx, req.NamespacedName, exec); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	gen := exec.GetGeneration()
 	if exec.Status.Phase == kubegreencomv1alpha1.PhaseSucceeded &&
 		exec.Status.ObservedGeneration == gen {
 		return ctrl.Result{}, nil
 	}
+
 	sleepInfo := &kubegreencomv1alpha1.SleepInfo{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: exec.Spec.SleepInfoRef}, sleepInfo); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{
+		Namespace: req.Namespace,
+		Name:      exec.Spec.SleepInfoRef,
+	}, sleepInfo); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.failExecution(ctx, exec, gen, fmt.Sprintf("SleepInfo %q not found", exec.Spec.SleepInfoRef))
+			return ctrl.Result{}, r.failExecution(ctx, exec, gen,
+				fmt.Sprintf("SleepInfo %q not found", exec.Spec.SleepInfoRef))
 		}
 		log.Error(err, "get SleepInfo")
 		return ctrl.Result{}, err
 	}
-	if err := controllerutil.SetControllerReference(sleepInfo, exec, *r.Scheme, controllerutil.WithBlockOwnerDeletion(false)); err != nil {
+
+	if err := controllerutil.SetControllerReference(sleepInfo, exec, r.Scheme); err != nil {
 		log.Error(err, "set controller reference")
 		return ctrl.Result{}, err
-
 	}
 	if err := r.Update(ctx, exec); err != nil {
 		log.Error(err, "update owner references on SleepInfoExecution")
 		return ctrl.Result{}, err
 	}
+
 	secretName := getSecretName(sleepInfo.Name)
-	secret, err := fetchSecret(ctx, r.Client, log, secretName, req.NamespacedName)
-	if client.IgnoreNotFound(err) != nil {
-		log.Error(err, "get secret")
-		return ctrl.Result{}, err
-	}
-	sleepInfoData, err := sleepInfoData(secret, sleepInfo)
-	if err != nil {
-		return ctrl.Result{}, r.failExecution(ctx, exec, gen, fmt.Sprintf("invalid sleepinfo secret data: %v", err))
-	}
-	op := string(exec.Spec.Operation)
-	data, err := ApplyExecutionOverride(sleepInfoData, op, sleepInfo)
-	if err != nil {
-		return ctrl.Result{}, r.failExecution(ctx, exec, gen, err.Error())
-	}
+	// TODO  load state
 
-	if err := patchExecutionStatus(ctx, exec, gen, kubegreencomv1alpha1.PhaseRunning, "", metav1.ConditionUnknown); err != nil {
-		return ctrl.Result{}, err
-	}
-	now := r.Now()
-	// TODO create runner
-
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.patchExecutionStatus(ctx, exec, gen, kubegreencomv1alpha1.PhaseSucceeded, "")
 }
 
-func (r *SleepinfoExecutionReconciler) failExecution(ctx context.Context, exec *kubegreencomv1alpha1.SleepinfoExecution, gen int64, msg string) error {
-	return r.patch
+func (r *SleepinfoExecutionReconciler) executeOperation(ctx context.Context, log logr.Logger, data SleepInfoData, resources resource.Resource) error {
+	switch {
+	case data.IsSleepOperation():
+		if err := resources.Sleep(ctx); err != nil {
+			log.Error(err, "sleep failed")
+			return fmt.Errorf("sleep failed: %w", err)
+		}
+	case data.IsWakeUpOperation():
+		if err := resources.WakeUp(ctx); err != nil {
+			log.Error(err, "wake up failed")
+			return fmt.Errorf("wake up failed: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported operation %q", data.CurrentOperationType)
+	}
+	return nil
+}
+
+func (r *SleepinfoExecutionReconciler) patchExecutionStatus(
+	ctx context.Context,
+	exec *kubegreencomv1alpha1.SleepinfoExecution,
+	gen int64,
+	phase kubegreencomv1alpha1.SleepInfoExecutionPhase,
+	msg string,
+) error {
+	patch := client.MergeFrom(exec.DeepCopy())
+	exec.Status.Phase = phase
+	exec.Status.ObservedGeneration = gen
+	exec.Status.Message = msg
+	return r.Status().Patch(ctx, exec, patch)
+}
+
+func (r *SleepinfoExecutionReconciler) failExecution(
+	ctx context.Context,
+	exec *kubegreencomv1alpha1.SleepinfoExecution,
+	gen int64,
+	msg string,
+) error {
+	return r.patchExecutionStatus(ctx, exec, gen, kubegreencomv1alpha1.PhaseFailed, msg)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SleepinfoExecutionReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Clock == nil {
+		r.Clock = realClock{}
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubegreencomv1alpha1.SleepinfoExecution{}).
 		Named("sleepinfoexecution").
