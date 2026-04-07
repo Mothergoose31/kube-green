@@ -41,6 +41,7 @@ type SleepInfoReconciler struct {
 	Clock
 	Log                     logr.Logger
 	Scheme                  *runtime.Scheme
+	State                   *StateStore
 	Metrics                 metrics.Metrics
 	SleepDelta              int64
 	ManagerName             string
@@ -91,15 +92,9 @@ func (r *SleepInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		"namespace": req.Namespace,
 	}).Set(1)
 
-	secretName := getSecretName(req.Name)
-	secret, err := r.getSecret(ctx, secretName, req.Namespace)
-	if client.IgnoreNotFound(err) != nil {
-		log.Error(err, "unable to fetch namespace", "namespaceName", req.Namespace)
-		return ctrl.Result{}, err
-	}
-	sleepInfoData, err := getSleepInfoData(secret, sleepInfo)
+	secret, sleepInfoData, err := r.State.Load(ctx, sleepInfo)
 	if err != nil {
-		log.Error(err, "unable to get secret data")
+		log.Error(err, "unable to load tracking state")
 		return ctrl.Result{}, err
 	}
 	now := r.Now()
@@ -136,13 +131,10 @@ func (r *SleepInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	log.V(8).Info("update status info")
 
-	logSecret := log.WithValues("secret", secretName)
 	if !resources.HasResource() {
-		if err = r.upsertSecret(ctx, log, now, secretName, req.Namespace, sleepInfo, secret, sleepInfoData, resources); err != nil {
-			logSecret.Error(err, "fails to update secret")
-			return ctrl.Result{
-				Requeue: true,
-			}, nil
+		if err := r.State.Save(ctx, sleepInfo, secret, now, sleepInfoData, resources); err != nil {
+			log.Error(err, "fails to save tracking state")
+			return ctrl.Result{Requeue: true}, nil
 		}
 
 		if sleepInfoData.IsSleepOperation() {
@@ -183,11 +175,9 @@ func (r *SleepInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("operation %s not supported", sleepInfoData.CurrentOperationType)
 	}
 
-	if err = r.upsertSecret(ctx, log, now, secretName, req.Namespace, sleepInfo, secret, sleepInfoData, resources); err != nil {
-		logSecret.Error(err, "fails to update secret")
-		return ctrl.Result{
-			Requeue: true,
-		}, nil
+	if err := r.State.Save(ctx, sleepInfo, secret, now, sleepInfoData, resources); err != nil {
+		log.Error(err, "fails to save tracking state")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	return ctrl.Result{

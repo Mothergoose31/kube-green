@@ -12,7 +12,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// TODO write state store type that keeps track of state
 type SleepInfoData struct {
 	LastSchedule                time.Time
 	CurrentOperationType        string

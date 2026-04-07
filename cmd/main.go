@@ -31,8 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-
-	"github.com/kube-green/kube-green/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -197,11 +195,13 @@ func main() {
 	}
 
 	customMetrics := metrics.SetupMetricsOrDie("kube_green").MustRegister(ctrlMetrics.Registry)
+	stateStore := sleepinfocontroller.NewStateStore(mgr.GetClient(), managerName)
 
 	if err = (&sleepinfocontroller.SleepInfoReconciler{
 		Client:                  mgr.GetClient(),
 		Log:                     ctrl.Log.WithName("controllers").WithName("SleepInfo"),
 		Scheme:                  mgr.GetScheme(),
+		State:                   stateStore,
 		Metrics:                 customMetrics,
 		SleepDelta:              sleepDelta,
 		ManagerName:             managerName,
@@ -210,15 +210,18 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "SleepInfo")
 		os.Exit(1)
 	}
-	if err = webhookv1alpha1.SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "SleepInfo")
+	if err = (&sleepinfocontroller.SleepinfoExecutionReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Log:         ctrl.Log.WithName("controllers").WithName("SleepInfoExecution"),
+		State:       stateStore,
+		ManagerName: managerName,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SleepInfoExecution")
 		os.Exit(1)
 	}
-	if err := (&controller.SleepinfoExecutionReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SleepinfoExecution")
+	if err = webhookv1alpha1.SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SleepInfo")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

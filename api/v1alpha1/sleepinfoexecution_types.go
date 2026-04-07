@@ -61,7 +61,7 @@ type SleepinfoExecutionStatus struct {
 type SleepInfoExecutionSpec struct {
 	// SleepInfoRef is the name of the SleepInfo in the same namespace to run against.
 	// +kubebuilder:validation:MinLength=1
-	SleepInfoRef string `json:"sleepInfoRef"`
+	SleepInfoRef string `json:"SleepInfoRef"`
 	// Operation is the one-shot operation to perform.
 	Operation SleepInfoExecutionOperation `json:"operation"`
 }

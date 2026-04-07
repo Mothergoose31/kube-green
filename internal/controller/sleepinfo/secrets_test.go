@@ -26,6 +26,7 @@ const (
 	testFieldManagerName = "mock-manager-name"
 )
 
+// TODO update tests
 func TestGetSecret(t *testing.T) {
 	testLogger := zap.New(zap.UseDevMode(true))
 	secretName := "secret-name"

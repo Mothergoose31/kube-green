@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kubegreencomv1alpha1 "github.com/kube-green/kube-green/api/v1alpha1"
+	"github.com/kube-green/kube-green/internal/controller/sleepinfo/jsonpatch"
 	"github.com/kube-green/kube-green/internal/controller/sleepinfo/resource"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,6 +27,7 @@ type SleepinfoExecutionReconciler struct {
 	Scheme *runtime.Scheme
 	Clock
 	Log         logr.Logger
+	State       *StateStore
 	ManagerName string
 }
 
@@ -77,8 +79,41 @@ func (r *SleepinfoExecutionReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	secretName := getSecretName(sleepInfo.Name)
-	// TODO  load state
+	secret, data, err := r.State.Load(ctx, sleepInfo)
+	if err != nil {
+		return ctrl.Result{}, r.failExecution(ctx, exec, gen,
+			fmt.Sprintf("load tracking state: %v", err))
+	}
+
+	data, err = applyExecutionOverride(data, exec.Spec.Operation, sleepInfo)
+	if err != nil {
+		return ctrl.Result{}, r.failExecution(ctx, exec, gen, err.Error())
+	}
+
+	if err := r.patchExecutionStatus(ctx, exec, gen, kubegreencomv1alpha1.PhaseRunning, ""); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	resources, err := jsonpatch.NewResources(ctx, resource.ResourceClient{
+		Client:           r.Client,
+		SleepInfo:        sleepInfo,
+		Log:              log,
+		FieldManagerName: r.ManagerName,
+	}, req.Namespace, data.OriginalGenericResourceInfo)
+	if err != nil {
+		log.Error(err, "get resources")
+		return ctrl.Result{}, r.failExecution(ctx, exec, gen,
+			fmt.Sprintf("failed to list resources: %v", err))
+	}
+
+	if err := r.executeOperation(ctx, log, data, resources); err != nil {
+		return ctrl.Result{}, r.failExecution(ctx, exec, gen, err.Error())
+	}
+
+	if err := r.State.Save(ctx, sleepInfo, secret, r.Now(), data, resources); err != nil {
+		log.Error(err, "save tracking state after execution")
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, r.patchExecutionStatus(ctx, exec, gen, kubegreencomv1alpha1.PhaseSucceeded, "")
 }
