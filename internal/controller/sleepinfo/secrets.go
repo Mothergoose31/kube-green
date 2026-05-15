@@ -11,6 +11,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/go-logr/logr"
 )
 
 type StateStore struct {
@@ -105,4 +106,61 @@ func (s *StateStore) buildSecret(
 		secret.Data[originalJSONPatchDataKey] = orig
 	}
 	return secret, nil
+}
+
+func (r *SleepInfoReconciler) getSecret(ctx context.Context, name, namespace string) (*v1.Secret, error) {
+	secret := &v1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, secret); err != nil {
+		return nil, err
+	}
+	return secret, nil
+}
+
+func (r *SleepInfoReconciler) upsertSecret(
+	ctx context.Context,
+	_ logr.Logger,
+	now time.Time,
+	secretName, namespace string,
+	sleepInfo *kubegreenv1alpha1.SleepInfo,
+	existing *v1.Secret,
+	data SleepInfoData,
+	resources resource.Resource,
+) error {
+	secret := &v1.Secret{
+		TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": r.ManagerName,
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: kubegreenv1alpha1.GroupVersion.String(),
+				Kind:       "SleepInfo",
+				Name:       sleepInfo.Name,
+				UID:        sleepInfo.UID,
+			}},
+		},
+		Data: map[string][]byte{
+			lastScheduleKey: []byte(now.Format(time.RFC3339)),
+		},
+	}
+
+	if resources.HasResource() {
+		secret.Data[lastOperationKey] = []byte(data.CurrentOperationType)
+	}
+
+	if resources.HasResource() && data.IsSleepOperation() {
+		orig, err := resources.GetOriginalInfoToSave()
+		if err != nil {
+			return fmt.Errorf("get original resource info: %w", err)
+		}
+		secret.Data[originalJSONPatchDataKey] = orig
+	}
+
+	if existing == nil {
+		return r.Client.Create(ctx, secret)
+	}
+	secret.ResourceVersion = existing.ResourceVersion
+	return r.Client.Update(ctx, secret)
 }

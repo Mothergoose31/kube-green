@@ -16,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -70,13 +71,15 @@ func (r *SleepinfoExecutionReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	if err := controllerutil.SetControllerReference(sleepInfo, exec, r.Scheme); err != nil {
-		log.Error(err, "set controller reference")
-		return ctrl.Result{}, err
-	}
-	if err := r.Update(ctx, exec); err != nil {
-		log.Error(err, "update owner references on SleepInfoExecution")
-		return ctrl.Result{}, err
+	if !metav1.IsControlledBy(exec, sleepInfo) {
+		if err := controllerutil.SetControllerReference(sleepInfo, exec, r.Scheme); err != nil {
+			log.Error(err, "set controller reference")
+			return ctrl.Result{}, err
+		}
+		if err := r.Update(ctx, exec); err != nil {
+			log.Error(err, "update owner references on SleepInfoExecution")
+			return ctrl.Result{}, err
+		}
 	}
 
 	secret, data, err := r.State.Load(ctx, sleepInfo)
@@ -112,7 +115,8 @@ func (r *SleepinfoExecutionReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	if err := r.State.Save(ctx, sleepInfo, secret, r.Now(), data, resources); err != nil {
 		log.Error(err, "save tracking state after execution")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.failExecution(ctx, exec, gen,
+			fmt.Sprintf("save tracking state after execution: %v", err))
 	}
 
 	return ctrl.Result{}, r.patchExecutionStatus(ctx, exec, gen, kubegreencomv1alpha1.PhaseSucceeded, "")
