@@ -1,0 +1,10 @@
+apiVersion: kube-green.com/v1alpha1
+kind: SleepInfoExecution
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-green
+    app.kubernetes.io/managed-by: kustomize
+  name: sleepinfoexecution-sample
+spec:
+  sleepInfoName: sleepinfo-spec
+  operation: SLEEP

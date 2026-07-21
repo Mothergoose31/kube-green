@@ -40,6 +40,7 @@ rules:
 - apiGroups:
   - kube-green.com
   resources:
+  - sleepinfoexecutions
   - sleepinfos
   verbs:
   - create
@@ -52,14 +53,15 @@ rules:
 - apiGroups:
   - kube-green.com
   resources:
-  - sleepinfos/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - kube-green.com
-  resources:
+  - sleepinfoexecutions/status
   - sleepinfos/status
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - kube-green.com
+  resources:
+  - sleepinfos/finalizers
+  verbs:
   - update

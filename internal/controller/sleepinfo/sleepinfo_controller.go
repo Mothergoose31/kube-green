@@ -62,6 +62,8 @@ type Clock interface {
 // +kubebuilder:rbac:groups=kube-green.com,resources=sleepinfos,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kube-green.com,resources=sleepinfos/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kube-green.com,resources=sleepinfos/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kube-green.com,resources=sleepinfoexecutions,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kube-green.com,resources=sleepinfoexecutions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

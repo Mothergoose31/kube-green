@@ -1,0 +1,109 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: sleepinfoexecutions.kube-green.com
+spec:
+  group: kube-green.com
+  names:
+    kind: SleepInfoExecution
+    listKind: SleepInfoExecutionList
+    plural: sleepinfoexecutions
+    singular: sleepinfoexecution
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.sleepInfoName
+      name: SleepInfo
+      type: string
+    - jsonPath: .spec.operation
+      name: Operation
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SleepInfoExecution is the Schema for the sleepinfoexecutions API.
+          It triggers an on-demand sleep or wake up of the resources managed by the
+          referenced SleepInfo, regardless of the configured schedule. Once processed,
+          the object is kept as a historical record of the execution.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              Spec is immutable: a SleepInfoExecution is a one-shot request. Create a
+              new resource to trigger another operation.
+            properties:
+              operation:
+                description: |-
+                  Operation to perform on the resources managed by the referenced
+                  SleepInfo. SLEEP or WAKE_UP are the possibilities.
+                enum:
+                - SLEEP
+                - WAKE_UP
+                type: string
+              sleepInfoName:
+                description: |-
+                  SleepInfoName is the name of the SleepInfo, in the same namespace of the
+                  SleepInfoExecution, to run the operation for.
+                minLength: 1
+                type: string
+            required:
+            - operation
+            - sleepInfoName
+            type: object
+            x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
+          status:
+            description: SleepInfoExecutionStatus defines the observed state of SleepInfoExecution
+            properties:
+              completionTime:
+                description: Information when the execution completed.
+                format: date-time
+                type: string
+              message:
+                description: Message is a human readable information about the execution
+                  outcome.
+                type: string
+              phase:
+                description: |-
+                  Phase of the execution. Pending, Succeeded, Failed or Skipped are the
+                  possibilities.
+                type: string
+              startTime:
+                description: Information when the execution started to be processed.
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

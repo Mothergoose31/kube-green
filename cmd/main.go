@@ -196,7 +196,7 @@ func main() {
 
 	customMetrics := metrics.SetupMetricsOrDie("kube_green").MustRegister(ctrlMetrics.Registry)
 
-	if err = (&sleepinfocontroller.SleepInfoReconciler{
+	sleepInfoReconciler := &sleepinfocontroller.SleepInfoReconciler{
 		Client:                  mgr.GetClient(),
 		Log:                     ctrl.Log.WithName("controllers").WithName("SleepInfo"),
 		Scheme:                  mgr.GetScheme(),
@@ -204,8 +204,15 @@ func main() {
 		SleepDelta:              sleepDelta,
 		ManagerName:             managerName,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err = sleepInfoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SleepInfo")
+		os.Exit(1)
+	}
+	if err = (&sleepinfocontroller.SleepInfoExecutionReconciler{
+		SleepInfoReconciler: sleepInfoReconciler,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SleepInfoExecution")
 		os.Exit(1)
 	}
 	if err = webhookv1alpha1.SetupWebhookWithManager(mgr); err != nil {
