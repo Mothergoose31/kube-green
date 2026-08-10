@@ -12,5 +12,11 @@ spec:
       kind:       Deployment
       name:       sleep
     - apiVersion: "apps/v1"
+      kind:       Deployment
+      name:       echo-service-replica-1
+    - apiVersion: "apps/v1"
       kind:       StatefulSet
       name:       sleep
+    - apiVersion: "apps/v1"
+      kind:       StatefulSet
+      name:       echo-service-replica-1

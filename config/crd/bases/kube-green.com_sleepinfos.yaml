@@ -75,7 +75,8 @@ spec:
               includeRef:
                 description: |-
                   IncludeRef define the resource to include from the sleep.
-                  Inclusion rules are evaluated in AND condition.
+                  Inclusion rules are evaluated in AND condition, except for multiple names of
+                  the same apiVersion and kind, which are evaluated in OR condition.
                 items:
                   description: Define a resource to filter, used to include or exclude
                     resources from the sleep.

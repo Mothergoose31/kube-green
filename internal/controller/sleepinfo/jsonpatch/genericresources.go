@@ -52,7 +52,7 @@ func (c genericResource) getListByNamespace(ctx context.Context, namespace strin
 	resourceList := unstructured.UnstructuredList{}
 	resourceList.SetGroupVersionKind(restMapping.GroupVersionKind)
 
-	listOptions, err := c.getListOptions(namespace, target)
+	listOptions, namesToInclude, err := c.getListOptions(namespace, target)
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +61,33 @@ func (c genericResource) getListByNamespace(ctx context.Context, namespace strin
 		return resourceList.Items, client.IgnoreNotFound(err)
 	}
 
-	c.Log.V(8).Info("resources list", "gvk", restMapping.GroupVersionKind.String(), "length", len(resourceList.Items))
+	items := filterByName(resourceList.Items, namesToInclude)
 
-	return resourceList.Items, nil
+	c.Log.V(8).Info("resources list", "gvk", restMapping.GroupVersionKind.String(), "length", len(items))
+
+	return items, nil
 }
 
-func (g genericResource) getListOptions(namespace string, target v1alpha1.PatchTarget) (*client.ListOptions, error) {
+// filterByName keeps only the resources listed in namesToInclude, and is a no-op
+// when it is empty ,  it completes the include by name filter for the cases which
+// cannot be expressed with a field selector, see getFieldToInclude.
+func filterByName(items []unstructured.Unstructured, namesToInclude map[string]struct{}) []unstructured.Unstructured {
+	if len(namesToInclude) == 0 {
+		return items
+	}
+
+	filtered := make([]unstructured.Unstructured, 0, len(items))
+	for _, item := range items {
+		if _, ok := namesToInclude[item.GetName()]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+// getListOptions returns the options to list the target resources the returned
+// map, when not empty, contains the names to keep once the list is fetched.
+func (g genericResource) getListOptions(namespace string, target v1alpha1.PatchTarget) (*client.ListOptions, map[string]struct{}, error) {
 	listOptions := &client.ListOptions{
 		Namespace: namespace,
 		Limit:     500,
@@ -74,7 +95,7 @@ func (g genericResource) getListOptions(namespace string, target v1alpha1.PatchT
 
 	includeRef := g.SleepInfo.GetIncludeRef()
 	excludeRef := g.SleepInfo.GetExcludeRef()
-	fieldsToInclude := getFieldToInclude(includeRef, target)
+	fieldsToInclude, namesToInclude := getFieldToInclude(includeRef, target)
 	labelsToInclude := getLabelsToInclude(includeRef)
 	fieldsToExclude := getFieldToExclude(excludeRef, target)
 	labelsToExclude := getLabelsToExclude(excludeRef)
@@ -87,7 +108,7 @@ func (g genericResource) getListOptions(namespace string, target v1alpha1.PatchT
 	if len(fieldSelectors) > 0 {
 		fieldSelector, err := fields.ParseSelector(strings.Join(fieldSelectors, ","))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		listOptions.FieldSelector = fieldSelector
 	}
@@ -100,12 +121,12 @@ func (g genericResource) getListOptions(namespace string, target v1alpha1.PatchT
 	if len(labelSelectors) > 0 {
 		labelSelector, err := labels.Parse(strings.Join(labelSelectors, ","))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		listOptions.LabelSelector = labelSelector
 	}
 
-	return listOptions, nil
+	return listOptions, namesToInclude, nil
 }
 
 func getFieldToExclude(excludeRef []v1alpha1.FilterRef, target v1alpha1.PatchTarget) []string {
@@ -123,7 +144,11 @@ func getFieldToExclude(excludeRef []v1alpha1.FilterRef, target v1alpha1.PatchTar
 	return fieldsSelector
 }
 
-func getFieldToInclude(includeRef []v1alpha1.FilterRef, target v1alpha1.PatchTarget) []string {
+// getFieldToInclude returns the field selectors to include the target resources by
+// name. Field selectors are evaluated in AND, so more than one name for the same
+// target cannot be expressed as a selector: those names are returned instead, to be
+// filtered once the list is fetched.
+func getFieldToInclude(includeRef []v1alpha1.FilterRef, target v1alpha1.PatchTarget) ([]string, map[string]struct{}) {
 	var names []string
 	for _, include := range includeRef {
 		if matchPatchTargetAndFilterRef(target, include) && include.Name != "" {
@@ -131,11 +156,18 @@ func getFieldToInclude(includeRef []v1alpha1.FilterRef, target v1alpha1.PatchTar
 		}
 	}
 
-	fieldsSelector := []string{}
-	for _, name := range names {
-		fieldsSelector = append(fieldsSelector, fmt.Sprintf("metadata.name==%s", name))
+	switch len(names) {
+	case 0:
+		return nil, nil
+	case 1:
+		return []string{fmt.Sprintf("metadata.name==%s", names[0])}, nil
+	default:
+		namesToInclude := make(map[string]struct{}, len(names))
+		for _, name := range names {
+			namesToInclude[name] = struct{}{}
+		}
+		return nil, namesToInclude
 	}
-	return fieldsSelector
 }
 
 // TODO: check when add support to versions

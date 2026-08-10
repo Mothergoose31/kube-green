@@ -195,6 +195,99 @@ func TestListResources(t *testing.T) {
 		require.Equal(t, []unstructured.Unstructured{d1.Unstructured()}, list)
 	})
 
+	t.Run("include configured resources by name, multiple names for the same target", func(t *testing.T) {
+		sleepInfo := &v1alpha1.SleepInfo{
+			Spec: v1alpha1.SleepInfoSpec{
+				Patches: []v1alpha1.Patch{
+					deployPatchData,
+				},
+				IncludeRef: []v1alpha1.FilterRef{
+					{
+						Kind:       "Deployment",
+						Name:       "d1",
+						APIVersion: "apps/v1",
+					},
+					{
+						Kind:       "Deployment",
+						Name:       "d3",
+						APIVersion: "apps/v1",
+					},
+					{
+						Kind:       "StatefulSet",
+						Name:       "d2",
+						APIVersion: "apps/v1",
+					},
+				},
+			},
+		}
+
+		fakeClient := testutil.PossiblyErroringFakeCtrlRuntimeClient{
+			Client: getFakeClient().WithObjects(d1.Resource(), d2.Resource(), d3.Resource(), d4.Resource()).Build(),
+		}
+
+		generic := newGenericResource(resource.ResourceClient{
+			Client:    fakeClient,
+			Log:       testLogger,
+			SleepInfo: sleepInfo,
+		}, deployPatchData, RestorePatches{})
+		list, err := generic.getListByNamespace(context.Background(), namespace, deployPatchData.Target)
+		require.NoError(t, err)
+		require.Len(t, list, 2)
+
+		cleanResourceVersion(list)
+		require.Equal(t, []unstructured.Unstructured{d1.Unstructured(), d3.Unstructured()}, list)
+	})
+
+	t.Run("include multiple resources by name and exclude by labels", func(t *testing.T) {
+		sleepInfo := &v1alpha1.SleepInfo{
+			Spec: v1alpha1.SleepInfoSpec{
+				Patches: []v1alpha1.Patch{
+					deployPatchData,
+				},
+				IncludeRef: []v1alpha1.FilterRef{
+					{
+						Kind:       "Deployment",
+						Name:       "d1",
+						APIVersion: "apps/v1",
+					},
+					{
+						Kind:       "Deployment",
+						Name:       "d2",
+						APIVersion: "apps/v1",
+					},
+					{
+						Kind:       "Deployment",
+						Name:       "d4",
+						APIVersion: "apps/v1",
+					},
+				},
+				ExcludeRef: []v1alpha1.FilterRef{
+					{
+						MatchLabels: map[string]string{
+							"kube-green.dev/exclude": "true",
+						},
+					},
+				},
+			},
+		}
+
+		fakeClient := testutil.PossiblyErroringFakeCtrlRuntimeClient{
+			Client: getFakeClient().WithObjects(d1.Resource(), d2.Resource(), d3.Resource(), d4.Resource()).Build(),
+		}
+
+		generic := newGenericResource(resource.ResourceClient{
+			Client:    fakeClient,
+			Log:       testLogger,
+			SleepInfo: sleepInfo,
+		}, deployPatchData, RestorePatches{})
+		list, err := generic.getListByNamespace(context.Background(), namespace, deployPatchData.Target)
+		require.NoError(t, err)
+		require.Len(t, list, 2)
+
+		cleanResourceVersion(list)
+		require.Equal(t, []unstructured.Unstructured{d1.Unstructured(), d4.Unstructured()}, list)
+	})
+
 	t.Run("include configured resources by labels", func(t *testing.T) {
 		sleepInfo := &v1alpha1.SleepInfo{
 			Spec: v1alpha1.SleepInfoSpec{

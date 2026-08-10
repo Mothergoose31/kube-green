@@ -70,7 +70,8 @@ type SleepInfoSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	ExcludeRef []FilterRef `json:"excludeRef,omitempty"`
 	// IncludeRef define the resource to include from the sleep.
-	// Inclusion rules are evaluated in AND condition.
+	// Inclusion rules are evaluated in AND condition, except for multiple names of
+	// the same apiVersion and kind, which are evaluated in OR condition.
 	// +optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	// +kubebuilder:validation:MaxItems=100
